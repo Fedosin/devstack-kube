@@ -1,0 +1,238 @@
+- name: create a custom security group
+  os_security_group:
+    state: present
+    name: ccm-security-group
+    description: Security group with ingress to ports 22, 80, 443, 6443
+
+- name: add ssh ingress rule
+  os_security_group_rule:
+    state: present
+    security_group: ccm-security-group
+    protocol: tcp
+    port_range_min: 22
+    port_range_max: 22
+
+- name: add http ingress rule
+  os_security_group_rule:
+    state: present
+    security_group: ccm-security-group
+    protocol: tcp
+    port_range_min: 80
+    port_range_max: 80
+
+- name: add https ingress rule
+  os_security_group_rule:
+    state: present
+    security_group: ccm-security-group
+    protocol: tcp
+    port_range_min: 443
+    port_range_max: 443
+
+- name: add ingress rule to kubernetes secure port
+  os_security_group_rule:
+    state: present
+    security_group: ccm-security-group
+    protocol: tcp
+    port_range_min: 6443
+    port_range_max: 6443
+
+- name: allow icmp on the private cluster network
+  os_security_group_rule:
+    state: present
+    security_group: ccm-security-group
+    protocol: icmp
+    remote_ip_prefix: 192.168.0.0/24
+
+- name: allow unrestricted TCP on the private cluster network
+  os_security_group_rule:
+    state: present
+    security_group: ccm-security-group
+    protocol: tcp
+    port_range_min: 1
+    port_range_max: 65535
+    remote_ip_prefix: 192.168.0.0/24
+
+- name: allow ping
+  os_security_group_rule:
+    state: present
+    security_group: ccm-security-group
+    protocol: icmp
+    remote_ip_prefix: 0.0.0.0/0
+
+- name: allow unrestricted TCP from the outside
+  os_security_group_rule:
+    state: present
+    security_group: ccm-security-group
+    protocol: tcp
+    port_range_min: 1
+    port_range_max: 65535
+    remote_ip_prefix: 0.0.0.0/0
+
+- name: allow unrestricted UDP from the outside
+  os_security_group_rule:
+    state: present
+    security_group: ccm-security-group
+    protocol: udp
+    port_range_min: 1
+    port_range_max: 65535
+    remote_ip_prefix: 0.0.0.0/0
+
+- name: create keypair
+  os_keypair:
+    state: present
+    name: "{{ key_name }}"
+    public_key_file: "{{ public_key_file }}"
+
+- name: create private network for the cluster
+  os_network:
+    state: present
+    name: ccm-private-net
+    port_security_enabled: yes
+
+- name: create private subnet on that network
+  os_subnet:
+    state: present
+    network_name: ccm-private-net
+    name: ccm-private-subnet
+    cidr: 192.168.0.0/24
+    gateway_ip: 192.168.0.1
+
+- name: create router for the private network
+  os_router:
+    state: present
+    name: ccm-private-router
+    interfaces: ccm-private-subnet
+    network: 38.145.32.0/22
+
+- name: launch master node
+  os_server:
+    name: master
+    state: present
+    wait: yes
+    auto_ip: yes
+    image: 'centos-8-x86_64'
+    security_groups: ccm-security-group
+    flavor: m1.large
+    key_name: "{{ key_name }}"
+    network: ccm-private-net
+    userdata: |
+      #cloud-config
+      runcmd:
+       - sed -i -e 's/#\?\(PasswordAuthentication\s*\).*$/\1 no/' /etc/ssh/sshd_config
+       - sed -i -e 's/#\?\(GSSAPIAuthentication\s*\).*$/\1 no/' /etc/ssh/sshd_config
+       - sed -i -e 's/#\?\(GSSAPICleanupCredentials\s*\).*$/\1 no/' /etc/ssh/sshd_config
+       - printf "\nKexAlgorithms curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha256\nCiphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr\nMACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com\n" >> /etc/ssh/sshd_config
+       - service sshd restart
+  register: master
+
+- name: add the master to our ansible inventory
+  add_host: hostname="{{ master.server.public_v4 }}"
+            groups=cluster,master,devstack
+            ansible_ssh_private_key_file="{{private_key_file}}"
+            ansible_ssh_user=centos
+
+- name: Create local login script
+  template: src=login-master.sh.j2
+            dest=./login-master.sh
+            mode=0755
+
+- name: launch worker0
+  os_server:
+    name: worker0
+    state: present
+    wait: yes
+    auto_ip: yes
+    image: 'centos-8-x86_64'
+    security_groups: ccm-security-group
+    flavor: m1.large
+    key_name: "{{ key_name }}"
+    network: ccm-private-net
+    userdata: |
+      #cloud-config
+      runcmd:
+       - sed -i -e 's/#\?\(PasswordAuthentication\s*\).*$/\1 no/' /etc/ssh/sshd_config
+       - sed -i -e 's/#\?\(GSSAPIAuthentication\s*\).*$/\1 no/' /etc/ssh/sshd_config
+       - sed -i -e 's/#\?\(GSSAPICleanupCredentials\s*\).*$/\1 no/' /etc/ssh/sshd_config
+       - printf "\nKexAlgorithms curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha256\nCiphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr\nMACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com\n" >> /etc/ssh/sshd_config
+       - service sshd restart
+  register: worker0
+
+- name: add worker0 to our ansible inventory
+  add_host: hostname="{{ worker0.server.public_v4 }}"
+            groups=cluster,workers
+            ansible_ssh_private_key_file="{{private_key_file}}"
+            ansible_ssh_user=centos
+
+- name: Create local login script
+  template: src=login-worker0.sh.j2
+            dest=./login-worker0.sh
+            mode=0755
+
+- name: launch worker1
+  os_server:
+    name: worker1
+    state: present
+    wait: yes
+    auto_ip: yes
+    image: 'centos-8-x86_64'
+    security_groups: ccm-security-group
+    flavor: m1.large
+    key_name: "{{ key_name }}"
+    network: ccm-private-net
+    userdata: |
+      #cloud-config
+      runcmd:
+       - sed -i -e 's/#\?\(PasswordAuthentication\s*\).*$/\1 no/' /etc/ssh/sshd_config
+       - sed -i -e 's/#\?\(GSSAPIAuthentication\s*\).*$/\1 no/' /etc/ssh/sshd_config
+       - sed -i -e 's/#\?\(GSSAPICleanupCredentials\s*\).*$/\1 no/' /etc/ssh/sshd_config
+       - printf "\nKexAlgorithms curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha256\nCiphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr\nMACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com\n" >> /etc/ssh/sshd_config
+       - service sshd restart
+  register: worker1
+
+- name: add worker1 to our ansible inventory
+  add_host: hostname="{{ worker1.server.public_v4 }}"
+            groups=cluster,workers
+            ansible_ssh_private_key_file="{{private_key_file}}"
+            ansible_ssh_user=centos
+
+- name: Create local login script
+  template: src=login-worker1.sh.j2
+            dest=./login-worker1.sh
+            mode=0755
+
+- name: launch worker2
+  os_server:
+    name: worker2
+    state: present
+    wait: yes
+    auto_ip: yes
+    image: 'centos-8-x86_64'
+    security_groups: ccm-security-group
+    flavor: m1.large
+    key_name: "{{ key_name }}"
+    network: ccm-private-net
+    userdata: |
+      #cloud-config
+      runcmd:
+       - sed -i -e 's/#\?\(PasswordAuthentication\s*\).*$/\1 no/' /etc/ssh/sshd_config
+       - sed -i -e 's/#\?\(GSSAPIAuthentication\s*\).*$/\1 no/' /etc/ssh/sshd_config
+       - sed -i -e 's/#\?\(GSSAPICleanupCredentials\s*\).*$/\1 no/' /etc/ssh/sshd_config
+       - printf "\nKexAlgorithms curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha256\nCiphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr\nMACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com\n" >> /etc/ssh/sshd_config
+       - service sshd restart
+  register: worker2
+
+- name: add worker2 our ansible inventory
+  add_host: hostname="{{ worker2.server.public_v4 }}"
+            groups=cluster,workers
+            ansible_ssh_private_key_file="{{ private_key_file }}"
+            ansible_ssh_user=centos
+
+- name: Create local login script
+  template: src=login-worker2.sh.j2
+            dest=login-worker2.sh
+            mode=0755
+
+- name: persist dynamic inventory to yml file
+  template: src=inventory.yml.j2
+            dest=inventory.yml
+            mode=0644

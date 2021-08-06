@@ -1,0 +1,23 @@
+- name: yum install centos-release-openstack-wallaby
+  become: yes
+  yum:
+    name: centos-release-openstack-wallaby
+    state: latest
+
+- name: yum install python-openstackclient
+  become: yes
+  yum:
+    name: python-openstackclient
+    state: latest
+
+- name: upload adminrc client credentials
+  copy:
+    src: ./adminrc
+    dest: /home/centos/adminrc
+    mode: '0440'
+
+- name: upload demorc client credentials
+  copy:
+    src: ./demorc
+    dest: /home/centos/demorc
+    mode: '0440'

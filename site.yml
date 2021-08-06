@@ -1,0 +1,50 @@
+- hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    ansible_python_interpreter: "/usr/bin/env python3"
+  vars_files:
+    - keys.yml
+  roles:
+    - openstack_infra
+  tags:
+  - provision_hosts
+
+- hosts: cluster
+  gather_facts: false
+  vars_files:
+    - "global_vars.yml"
+  roles:
+    - cluster
+  tags:
+  - prepare_cluster_hosts
+
+- hosts: master
+  vars_files:
+    - "global_vars.yml"
+  roles:
+    - master
+    - common
+  tags:
+  - setup_master_host
+
+- hosts: workers
+  vars_files:
+    - "global_vars.yml"
+  roles:
+    - workers
+    - common
+  tags:
+  - setup_worker_hosts
+
+- hosts: devstack
+  roles:
+    - devstack
+  tags:
+  - install
+
+- hosts: cluster
+  roles:
+    - devstack_common
+  tags:
+  - openstack_clients
