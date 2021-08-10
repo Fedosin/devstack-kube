@@ -1,0 +1,9 @@
+keys.yml
+/login*.sh
+*.retry
+kubeconfig.conf
+.venv
+adminrc
+demorc
+inventory.yml
+.vagrant

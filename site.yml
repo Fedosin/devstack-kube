@@ -1,5 +1,4 @@
 - hosts: localhost
-  gather_facts: false
   connection: local
   vars:
     ansible_python_interpreter: "/usr/bin/env python3"
@@ -36,15 +35,3 @@
     - common
   tags:
   - setup_worker_hosts
-
-- hosts: devstack
-  roles:
-    - devstack
-  tags:
-  - install
-
-- hosts: cluster
-  roles:
-    - devstack_common
-  tags:
-  - openstack_clients

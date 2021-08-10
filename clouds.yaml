@@ -1,0 +1,12 @@
+clouds:
+  devstack:
+    auth:
+        auth_url: http://10.123.123.123/identity
+        project_domain_name: Default
+        project_name: admin
+        user_domain_name: Default
+        username: admin
+        password: secret
+    identity_api_version: '3'
+    volume_api_version: '3'
+    region_name: RegionOne
