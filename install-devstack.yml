@@ -17,17 +17,38 @@
         dest: /etc/sudoers.d/stack
         mode: 0440
 
+    - name: Upgrade packages
+      apt:
+        update_cache: yes
+        upgrade: yes
+
     # Without the `acl` package you may (and probably will) experience permission related issues
     - name: Install acl to fix unprivileged user error
-      package:
+      apt:
         name: acl
         state: present
 
     # DevStack scripts uses `python` directly to system has to ensure `python` command availability and map it to the Python 3
     - name: Install python-is-python3 to ensures that python means python3
-      package:
+      apt:
         name: python-is-python3
         state: present
+
+    # Fix "ebtables v1.8.4 (nf_tables): table `broute' is incompatible, use 'nft' tool."
+    # See: https://bugs.launchpad.net/devstack/+bug/1885198
+    - name: install required networking packages
+      apt:
+        state: present
+        name:
+          - iptables
+          - arptables
+          - ebtables
+    - name: use nft tool
+      shell: |
+        update-alternatives --set iptables /usr/sbin/iptables-legacy || true
+        update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true
+        update-alternatives --set arptables /usr/sbin/arptables-legacy || true
+        update-alternatives --set ebtables /usr/sbin/ebtables-legacy || true
 
 - name: DevStack setup as 'stack' user
   hosts: all
@@ -38,7 +59,7 @@
       git:
         repo: https://opendev.org/openstack/devstack
         dest: /opt/stack/devstack
-        version: stable/victoria
+        version: stable/wallaby
 
     - name: Copy file with configuration
       copy:
@@ -47,7 +68,7 @@
 
     - name: Test if DevStack is installed by checking /opt/stack/tempest existence
       shell:
-        # According to the https://docs.openstack.org/devstack/victoria#profit
+        # According to the https://docs.openstack.org/devstack/wallaby#profit
         # /opt/stack/tempest dir should exist after devstack installation is completed
         # this is not an ideal way of testing but at least it is something
         cmd: 'test -d "/opt/stack/tempest" && echo "yes" || echo "no"'
